@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#05030c">
+<title>Vùng Đất Hư Không — Chrono Void</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,800;1,700&family=Be+Vietnam+Pro:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --gold:#e8c98c; --gold-dim:rgba(232,201,140,.35); --gold-faint:rgba(232,201,140,.14);
+    --ink:#f2e9d4; --ink-dim:#b9ac91; --violet:#b48aff; --cyan:#8fd8e8;
+    --panel:rgba(10,6,20,.42);
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{ height:100%; overflow:hidden; background:#05030c; }
+  body{ font-family:'Be Vietnam Pro',sans-serif; color:var(--ink); }
+  #scene{ position:fixed; inset:0; }
+  #scene canvas{ display:block; }
+
+  /* Vignette điện ảnh + lớp tint khi đảo ngược / đóng băng thời gian */
+  #vignette{ position:fixed; inset:0; pointer-events:none; box-shadow:inset 0 0 220px rgba(0,0,0,.75); }
+  #tint{ position:fixed; inset:0; pointer-events:none; opacity:0; transition:opacity .7s ease; }
+  #tint.reverse{ opacity:1; background:rgba(120,60,220,.06); box-shadow:inset 0 0 180px rgba(90,40,180,.28); }
+  #tint.frozen{ opacity:1; background:rgba(60,150,190,.05); box-shadow:inset 0 0 180px rgba(40,120,160,.22); }
+
+  /* Khung góc quan sát */
+  .corner{ position:fixed; width:26px; height:26px; pointer-events:none; opacity:0; transition:opacity 1.2s ease .4s; }
+  body.ready .corner{ opacity:.55; }
+  .corner.tl{ top:16px; left:16px; border-top:1px solid var(--gold-dim); border-left:1px solid var(--gold-dim); }
+  .corner.tr{ top:16px; right:16px; border-top:1px solid var(--gold-dim); border-right:1px solid var(--gold-dim); }
+  .corner.bl{ bottom:16px; left:16px; border-bottom:1px solid var(--gold-dim); border-left:1px solid var(--gold-dim); }
+  .corner.br{ bottom:16px; right:16px; border-bottom:1px solid var(--gold-dim); border-right:1px solid var(--gold-dim); }
+
+  #hud{ position:fixed; inset:0; pointer-events:none; opacity:0; transition:opacity 1.4s ease; display:flex; flex-direction:column; justify-content:space-between; }
+  body.ready #hud{ opacity:1; }
+
+  .hud-top{ display:flex; justify-content:space-between; align-items:flex-start; padding:34px 42px 0; }
+  .brand-label{ font-size:10px; letter-spacing:.42em; color:var(--gold); opacity:.85; margin-bottom:10px; }
+  .brand h1{ font-family:'Playfair Display',serif; font-weight:800; font-size:clamp(26px,3.4vw,40px); line-height:1.08; color:var(--ink); }
+  .brand h1 em{ font-style:italic; color:var(--gold); }
+  .brand-sub{ margin-top:8px; font-weight:300; font-size:12px; letter-spacing:.05em; color:var(--ink-dim); max-width:380px; }
+
+  .chrono-readout{ text-align:right; }
+  .readout-label{ font-size:9px; letter-spacing:.4em; color:var(--ink-dim); margin-bottom:6px; }
+  .readout-time{ font-family:'SF Mono','Cascadia Mono',Consolas,monospace; font-size:clamp(16px,2vw,22px); letter-spacing:.06em; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .readout-time.glitch{ color:var(--violet); }
+  .readout-state{ margin-top:6px; font-size:9px; letter-spacing:.3em; color:var(--gold); }
+  .readout-state.stop{ color:var(--cyan); }
+  .readout-state.rev{ color:var(--violet); }
+
+  .hud-bottom{ display:flex; align-items:flex-end; justify-content:space-between; gap:24px; padding:0 42px 30px; }
+  .hints{ display:flex; flex-direction:column; gap:7px; font-size:10px; letter-spacing:.14em; color:var(--ink-dim); }
+  .hints .row{ display:flex; align-items:center; gap:8px; }
+  .kbd{ border:1px solid var(--gold-dim); padding:2px 7px; font-size:9px; letter-spacing:.18em; color:var(--gold); min-width:52px; text-align:center; }
+
+  .time-panel{ pointer-events:auto; background:var(--panel); border:1px solid rgba(232,201,140,.18); backdrop-filter:blur(10px); padding:16px 24px 18px; min-width:340px; }
+  .panel-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px; }
+  .panel-label{ font-size:10px; letter-spacing:.38em; color:var(--gold); }
+  .panel-value{ font-family:'SF Mono',Consolas,monospace; font-size:13px; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .panel-row{ display:flex; align-items:center; gap:14px; }
+  .preset{ pointer-events:auto; cursor:pointer; background:transparent; border:1px solid var(--gold-dim); color:#d8c9a8; font-family:inherit; font-size:10px; letter-spacing:.16em; text-transform:uppercase; padding:7px 12px; transition:all .25s ease; }
+  .preset:hover{ border-color:var(--gold); color:var(--ink); }
+  .preset.active{ background:var(--gold-faint); border-color:var(--gold); color:#ffe9bd; }
+
+  input[type=range]{ -webkit-appearance:none; appearance:none; flex:1; min-width:120px; height:22px; background:transparent; cursor:pointer; }
+  input[type=range]::-webkit-slider-runnable-track{ height:2px; background:linear-gradient(to right, rgba(180,138,255,.45), var(--gold-dim), rgba(232,201,140,.45)); }
+  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:13px; height:13px; margin-top:-5.5px; border-radius:50%; background:#140b26; border:1.5px solid var(--gold); box-shadow:0 0 8px rgba(232,201,140,.4); }
+  input[type=range]::-moz-range-track{ height:2px; background:var(--gold-dim); }
+  input[type=range]::-moz-range-thumb{ width:11px; height:11px; border-radius:50%; background:#140b26; border:1.5px solid var(--gold); }
+
+  .pulse-hint{ display:flex; align-items:center; gap:10px; }
+  #pulseBtn{ pointer-events:auto; cursor:pointer; background:transparent; border:1px solid var(--gold-dim); color:var(--gold); font-family:inherit; font-size:10px; letter-spacing:.2em; text-transform:uppercase; padding:9px 16px; transition:all .25s ease; }
+  #pulseBtn:hover{ background:var(--gold-faint); border-color:var(--gold); }
+  #pulseBtn:active{ transform:scale(.96); }
+
+  /* Màn nạp */
+  #loader{ position:fixed; inset:0; z-index:10; background:#05030c; display:flex; align-items:center; justify-content:center; transition:opacity 1s ease; }
+  #loader.done{ opacity:0; pointer-events:none; }
+  .loader-inner{ text-align:center; width:min(360px,80vw); }
+  .loader-title{ font-family:'Playfair Display',serif; font-size:22px; letter-spacing:.14em; color:var(--ink); margin-bottom:26px; }
+  .loader-bar{ height:1px; background:rgba(232,201,140,.18); position:relative; }
+  .loader-bar i{ position:absolute; left:0; top:-0.5px; height:2px; width:0%; background:var(--gold); transition:width .2s ease; display:block; }
+  .loader-status{ margin-top:14px; font-size:10px; letter-spacing:.24em; color:var(--ink-dim); }
+
+  @media (max-width:820px){
+    .brand-sub,.hints,.pulse-hint span{ display:none; }
+    .hud-top,.hud-bottom{ padding-left:22px; padding-right:22px; }
+    .time-panel{ min-width:0; width:100%; }
+    .hud-bottom{ flex-direction:column; align-items:stretch; }
+  }
+
+  #errorBox{
+    position:fixed; inset:0; z-index:20; background:#05030c;
+    display:none; align-items:center; justify-content:center; padding:24px;
+  }
+  #errorBox.show{ display:flex; }
+  #errorBox .box{
+    max-width:540px; width:100%; border:1px solid rgba(232,201,140,.25);
+    background:rgba(10,6,20,.92); padding:28px 24px; color:#f2e9d4;
+  }
+  #errorBox h2{ font-family:'Playfair Display',serif; font-size:20px; color:#e8c98c; margin-bottom:12px; letter-spacing:.06em; }
+  #errorBox p{ font-size:13px; line-height:1.65; color:#b9ac91; margin-bottom:10px; }
+  #errorBox code{ display:block; background:rgba(232,201,140,.08); border:1px solid rgba(232,201,140,.15);
+    padding:10px 12px; font-size:11px; color:#e8c98c; margin:8px 0 12px; font-family:Consolas,monospace;
+    white-space:pre-wrap; word-break:break-all; }
+  #errorBox .hint{ font-size:12px; color:#f2e9d4; line-height:1.6; }
+</style>
+</head>
+<body>
+<div id="errorBox">
+  <div class="box">
+    <h2 id="errTitle">Không tải được cảnh</h2>
+    <p id="errMsg">Đã xảy ra lỗi khi khởi tạo.</p>
+    <code id="errDetail"></code>
+    <div class="hint" id="errHint"></div>
+  </div>
+</div>
+<div id="scene"></div>
+<div id="vignette"></div>
+<div id="tint"></div>
+<div class="corner tl"></div><div class="corner tr"></div>
+<div class="corner bl"></div><div class="corner br"></div>
+
+<div id="hud">
+  <header class="hud-top">
+    <div class="brand">
+      <div class="brand-label">CHRONO VOID · CONTINUUM</div>
+      <h1>Vùng Đất <em>Hư Không</em></h1>
+      <p class="brand-sub">Ngoài chiều thời gian — nơi những công trình cổ đại rơi xuống, rồi bị kéo ngược trở về vô định.</p>
+    </div>
+    <div class="chrono-readout">
+      <div class="readout-label">THỜI GIAN HƯ</div>
+      <div class="readout-time" id="virtualTime">T+00:00:00.0</div>
+      <div class="readout-state" id="flowState">DÒNG THỜI GIAN TUÂN CHUỘNG</div>
+    </div>
+  </header>
+
+  <footer class="hud-bottom">
+    <div class="hints">
+      <div class="row"><span class="kbd">KÉO</span> XOAY GÓC NHÌN</div>
+      <div class="row"><span class="kbd">LĂN</span> THU PHÓNG</div>
+      <div class="row"><span class="kbd">PHẢI</span> DI CHUYỂN</div>
+    </div>
+    <div class="time-panel">
+      <div class="panel-head">
+        <span class="panel-label">DÒNG THỜI GIAN</span>
+        <span class="panel-value" id="timeValue">×1.0</span>
+      </div>
+      <div class="panel-row">
+        <button class="preset" data-scale="0">Đóng băng</button>
+        <input type="range" id="timeSlider" min="-100" max="100" value="100" aria-label="Điều khiển dòng thời gian">
+        <button class="preset active" data-scale="1">Thuận</button>
+        <button class="preset" data-scale="-1">Nghịch</button>
+      </div>
+    </div>
+    <div class="pulse-hint">
+      <button id="pulseBtn">Xung thời gian</button>
+      <span class="kbd">SPACE</span>
+    </div>
+  </footer>
+</div>
+
+<div id="loader">
+  <div class="loader-inner">
+    <div class="loader-title">VÙNG ĐẤT HƯ KHÔNG</div>
+    <div class="loader-bar"><i id="loaderFill"></i></div>
+    <div class="loader-status" id="loaderStatus">Đang dệt nền tảng thời gian…</div>
+  </div>
+</div>
+
+<script>
+/* Loader chạy NGOÀI module — luôn hoạt động dù Three.js lỗi */
+(function(){
+  var fill = document.getElementById('loaderFill');
+  var status = document.getElementById('loaderStatus');
+  var loader = document.getElementById('loader');
+  var msgs = [
+    [0,  'Đang dệt nền tảng thời gian…'],
+    [25, 'Đánh thức những tàn tích cổ đại…'],
+    [50, 'Đồng bộ mặt trời đồng hồ…'],
+    [75, 'Mở cổng chiều không gian…'],
+    [92, 'Đang tải Three.js…']
+  ];
+  var prog = 0;
+  var stuckTimer = 0;
+  window.__loaderDone = false;
+
+  window.__showError = function(title, msg, detail, hint){
+    var box = document.getElementById('errorBox');
+    if (!box) return;
+    document.getElementById('errTitle').textContent = title || 'Lỗi';
+    document.getElementById('errMsg').textContent = msg || '';
+    document.getElementById('errDetail').textContent = detail || '';
+    document.getElementById('errHint').innerHTML = hint || '';
+    box.classList.add('show');
+    if (loader) loader.style.display = 'none';
+  };
+
+  var iv = setInterval(function(){
+    if (window.__loaderDone) {
+      prog = Math.min(100, prog + 8);
+    } else {
+      prog = Math.min(90, prog + (2 + Math.random() * 4));
+      stuckTimer += 120;
+      if (stuckTimer > 12000 && prog >= 88) {
+        clearInterval(iv);
+        window.__showError(
+          'Three.js không tải được',
+          'Trình duyệt không tải được thư viện 3D từ CDN (jsDelivr). Thường do mất mạng, firewall, hoặc chặn CDN.',
+          'Failed to load module: three@0.160.0',
+          '• Kiểm tra kết nối internet<br>• Tắt VPN / ad-blocker tạm thời<br>• Thử trình duyệt khác (Chrome / Edge)<br>• Mở F12 → tab Console xem lỗi đỏ chi tiết'
+        );
+        return;
+      }
+    }
+    if (fill) fill.style.width = prog + '%';
+    for (var i = 0; i < msgs.length; i++) {
+      if (prog >= msgs[i][0]) status.textContent = msgs[i][1];
+    }
+    if (prog >= 100) {
+      clearInterval(iv);
+      setTimeout(function(){
+        if (loader) loader.classList.add('done');
+        document.body.classList.add('ready');
+      }, 280);
+    }
+  }, 120);
+
+  if (location.protocol === 'file:') {
+    clearInterval(iv);
+    window.__showError(
+      'Không chạy được từ file://',
+      'Trình duyệt chặn module khi mở bằng double-click. Hãy dùng Live Server hoặc python -m http.server.',
+      location.href,
+      'Trong VS Code: chuột phải file → <b>Open with Live Server</b><br>Hoặc Terminal: <code>python -m http.server 8000</code> rồi mở http://localhost:8000/thoigian.html'
+    );
+  }
+})();
+</script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+/* Báo loader: module đã load xong */
+window.__loaderDone = true;
+
+/* ══════════════════════════ TIỆN ÍCH ══════════════════════════ */
+const R = (a=1,b)=> b===undefined ? Math.random()*a : a+Math.random()*(b-a);
+const easeOutCubic = k => 1-Math.pow(1-k,3);
+function lcg(seed){ let s=(seed>>>0)||1; return ()=> (s=(s*1664525+1013904223)>>>0)/4294967296; }
+function n3(x,y,z,s=0){ return Math.sin(x*3.7+s*12.9)*.5 + Math.sin(y*2.9+s*7.3)*.3 + Math.sin(z*4.3+s*3.1)*.2; }
+function makeCanvas(w,h=w){ const c=document.createElement('canvas'); c.width=w; c.height=h; return [c,c.getContext('2d')]; }
+
+/* ══════════════════════════ RENDERER / SCENE ══════════════════════════ */
+const holder = document.getElementById('scene');
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+} catch (err) {
+  if (window.__showError) {
+    window.__showError(
+      'WebGL không khả dụng',
+      'Không tạo được ngữ cảnh WebGL. Thường do tắt Hardware Acceleration hoặc driver GPU lỗi.',
+      String(err && err.message || err),
+      'Chrome/Edge: Settings → System → bật <b>Use hardware acceleration when available</b> rồi khởi động lại trình duyệt.<br>Hoặc thử Firefox / cập nhật driver card đồ họa.'
+    );
+  }
+  throw err;
+}
+let pxRatio = Math.min(window.devicePixelRatio, 2);
+if (window.innerWidth < 820 && pxRatio > 1.5) pxRatio = 1.5;
+renderer.setPixelRatio(pxRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+holder.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x070411);
+scene.fog = new THREE.FogExp2(0x0b0620, 0.0045);
+
+const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.5, 2600);
+const camStart = new THREE.Vector3(0, 130, 400);
+const camEnd   = new THREE.Vector3(16, 30, 128);
+camera.position.copy(camStart);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.target.set(0, 6, 0);
+controls.minDistance = 42;
+controls.maxDistance = 420;
+controls.maxPolarAngle = 1.68;
+controls.minPolarAngle = 0.12;
+controls.autoRotateSpeed = 0.4;
+controls.enabled = false; // bật sau đoạn camera lướt vào
+
+// Môi trường phản xạ cho kim loại (vàng kim)
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.85, 0.55, 0.5);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+/* ══════════════════════════ TEXTURE THỦ TỤC ══════════════════════════ */
+function ringArc(ctx,cx,cy,r,lw,alpha=1){ ctx.globalAlpha=alpha; ctx.lineWidth=lw; ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke(); ctx.globalAlpha=1; }
+function tickRing(ctx,cx,cy,r0,r1,count,lw,every=1){ ctx.lineWidth=lw; ctx.beginPath(); for(let i=0;i<count;i++){ const a=i/count*Math.PI*2, big=(i%every===0); const rr0=big?r0-(r1-r0)*.45:r0; ctx.moveTo(cx+Math.cos(a)*rr0, cy+Math.sin(a)*rr0); ctx.lineTo(cx+Math.cos(a)*r1, cy+Math.sin(a)*r1);} ctx.stroke(); }
+function drawGlyphs(ctx,cx,cy,radius,count,size,lw,rnd){ ctx.lineWidth=lw; for(let i=0;i<count;i++){ const a=i/count*Math.PI*2; ctx.save(); ctx.translate(cx+Math.cos(a)*radius, cy+Math.sin(a)*radius); ctx.rotate(a+Math.PI/2); ctx.beginPath(); ctx.moveTo(-size/2, -size/2); const steps=2+Math.floor(rnd()*3); for(let k=0;k<steps;k++){ ctx.lineTo((Math.floor(rnd()*3)-1)*size/2, (Math.floor(rnd()*2)-0.5)*size); } ctx.stroke(); ctx.restore(); } }
+
+function makeSoftTex(size=128){
+  const [c,x]=makeCanvas(size);
+  const g=x.createRadialGradient(size/2,size/2,0,size/2,size/2,size/2);
+  g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(.3,'rgba(255,255,255,.5)'); g.addColorStop(1,'rgba(255,255,255,0)');
+  x.fillStyle=g; x.fillRect(0,0,size,size);
+  return new THREE.CanvasTexture(c);
+}
+const softTex = makeSoftTex();
+
+function makeRockTex(){
+  const [c,x]=makeCanvas(512);
+  x.fillStyle='#2b2337'; x.fillRect(0,0,512,512);
+  for(let i=0;i<24;i++){ x.fillStyle=`rgba(90,76,120,${R(.02,.05)})`; x.beginPath(); x.ellipse(R(512),R(512),R(30,120),R(15,60),R(Math.PI),0,Math.PI*2); x.fill(); }
+  for(let i=0;i<2600;i++){
+    x.fillStyle = Math.random()<.5 ? `rgba(122,108,150,${R(.03,.09)})` : `rgba(10,7,18,${R(.04,.12)})`;
+    const s=R(1,3.4); x.fillRect(R(512),R(512),s,s);
+  }
+  x.strokeStyle='rgba(8,5,14,.55)';
+  for(let i=0;i<12;i++){ x.lineWidth=R(.6,1.8); x.beginPath(); let px=R(512),py=R(512); x.moveTo(px,py); for(let k=0;k<6;k++){ px+=R(-46,46); py+=R(-46,46); x.lineTo(px,py);} x.stroke(); }
+  for(let i=0;i<26;i++){ x.fillStyle=`rgba(214,178,106,${R(.05,.16)})`; x.fillRect(R(512),R(512),R(1,2.4),R(1,2.4)); }
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.wrapS=t.wrapT=THREE.RepeatWrapping; return t;
+}
+
+function makeRuneRingTex(kind){ // kind: 'arena' | 'magic'
+  const [c,x]=makeCanvas(1024);
+  const rnd=lcg(kind==='arena'?7:23);
+  x.strokeStyle='#f2c66d'; x.shadowColor='#ffb054'; x.shadowBlur=12; x.lineCap='round';
+  const cx=512, cy=512;
+  if(kind==='arena'){
+    ringArc(x,cx,cy,486,6); ringArc(x,cx,cy,452,2);
+    tickRing(x,cx,cy,452,486,72,2.5,6);
+    drawGlyphs(x,cx,cy,408,30,30,3,rnd);
+    ringArc(x,cx,cy,368,2.5);
+    x.lineWidth=2; x.beginPath(); for(let i=0;i<6;i++){ const a=i/6*Math.PI*2; const px=cx+Math.cos(a)*340, py=cy+Math.sin(a)*340; i?x.lineTo(px,py):x.moveTo(px,py);} x.closePath(); x.stroke();
+    ringArc(x,cx,cy,300,1.5); tickRing(x,cx,cy,268,292,36,2,3);
+    drawGlyphs(x,cx,cy,232,12,24,2.5,rnd);
+    ringArc(x,cx,cy,196,5); ringArc(x,cx,cy,160,2);
+    for(let i=0;i<3;i++){ const a=i/3*Math.PI*2-Math.PI/2; ringArc(x,cx+Math.cos(a)*140,cy+Math.sin(a)*140,16,2); }
+  }else{
+    ringArc(x,cx,cy,470,4); ringArc(x,cx,cy,430,2);
+    tickRing(x,cx,cy,430,470,64,2,4);
+    drawGlyphs(x,cx,cy,392,24,28,3,rnd);
+    ringArc(x,cx,cy,350,2);
+    x.lineWidth=2.5; x.beginPath();
+    for(let i=0;i<5;i++){ const a=i/5*Math.PI*2-Math.PI/2; const px=cx+Math.cos(a)*336, py=cy+Math.sin(a)*336; i?x.lineTo(px,py):x.moveTo(px,py);} x.closePath(); x.stroke();
+    ringArc(x,cx,cy,230,2);
+    drawGlyphs(x,cx,cy,196,10,20,2.5,rnd);
+    ringArc(x,cx,cy,160,3);
+    x.fillStyle='#f2c66d';
+    for(let i=0;i<5;i++){ const a=i/5*Math.PI*2-Math.PI/2; x.beginPath(); x.arc(cx+Math.cos(a)*336,cy+Math.sin(a)*336,9,0,Math.PI*2); x.fill(); }
+  }
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=renderer.capabilities.getMaxAnisotropy(); return t;
+}
+
+function makeClockTex(){
+  const [c,x]=makeCanvas(1024);
+  const cx=512, cy=512;
+  // Mặt ngà cổ, ố vàng
+  x.fillStyle='#c8b287'; x.fillRect(0,0,1024,1024);
+  for(let i=0;i<400;i++){ x.fillStyle=Math.random()<.5?`rgba(70,45,20,${R(.03,.07)})`:`rgba(255,240,200,${R(.03,.06)})`; const s=R(1,3); x.fillRect(R(1024),R(1024),s,s); }
+  for(let i=0;i<12;i++){ x.fillStyle=`rgba(96,64,28,${R(.03,.06)})`; x.beginPath(); x.ellipse(R(1024),R(1024),R(30,110),R(20,80),R(Math.PI),0,Math.PI*2); x.fill(); }
+  let g=x.createRadialGradient(cx,cy,260,cx,cy,512);
+  g.addColorStop(0,'rgba(58,38,16,0)'); g.addColorStop(1,'rgba(58,38,16,.5)');
+  x.fillStyle=g; x.fillRect(0,0,1024,1024);
+  // Vòng viền & vạch
+  x.strokeStyle='#5f421f'; x.shadowColor='#3a2610'; x.shadowBlur=4;
+  ringArc(x,cx,cy,486,12); ringArc(x,cx,cy,462,3); ringArc(x,cx,cy,262,2); ringArc(x,cx,cy,250,6); ringArc(x,cx,cy,120,2,.7);
+  x.shadowBlur=0;
+  x.strokeStyle='#3f2c12'; x.lineCap='round';
+  tickRing(x,cx,cy,430,448,60,3,5);
+  x.lineWidth=9; x.beginPath();
+  for(let i=0;i<12;i++){ const a=i/12*Math.PI*2-Math.PI/2; x.moveTo(cx+Math.cos(a)*408,cy+Math.sin(a)*408); x.lineTo(cx+Math.cos(a)*442,cy+Math.sin(a)*442); }
+  x.stroke();
+  // Số La Mã (IIII kiểu đồng hồ cổ)
+  const roman=['XII','I','II','III','IIII','V','VI','VII','VIII','IX','X','XI'];
+  x.fillStyle='#3f2c12'; x.font='600 58px Georgia,"Times New Roman",serif'; x.textAlign='center'; x.textBaseline='middle';
+  for(let i=0;i<12;i++){ const a=i/12*Math.PI*2-Math.PI/2; x.save(); x.translate(cx+Math.cos(a)*350,cy+Math.sin(a)*350); x.rotate(a+Math.PI/2); x.fillText(roman[i],0,0); x.restore(); }
+  // Tâm trang trí
+  x.strokeStyle='#8a6a30'; x.lineWidth=2; x.beginPath(); x.arc(cx,cy,40,0,Math.PI*2); x.stroke();
+  x.fillStyle='#3f2c12'; x.beginPath(); x.arc(cx,cy,16,0,Math.PI*2); x.fill();
+  x.strokeStyle='#caa24d'; x.lineWidth=4; x.beginPath(); x.arc(cx,cy,22,0,Math.PI*2); x.stroke();
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=renderer.capabilities.getMaxAnisotropy(); return t;
+}
+
+function makeRuneStripTex(){
+  const [c,x]=makeCanvas(512,128);
+  const rnd=lcg(99);
+  x.strokeStyle='#ffd98c'; x.shadowColor='#ffb84d'; x.shadowBlur=8; x.lineCap='round'; x.lineWidth=3;
+  for(let i=0;i<12;i++){
+    const gx=26+i*40;
+    x.beginPath(); x.moveTo(gx-12,30);
+    for(let k=0;k<3;k++){ x.lineTo(gx+(Math.floor(rnd()*3)-1)*12, 30+k*34); }
+    x.stroke();
+  }
+  x.lineWidth=1.5;
+  x.beginPath(); x.moveTo(10,12); x.lineTo(502,12); x.moveTo(10,116); x.lineTo(502,116); x.stroke();
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t;
+}
+
+const rockTex = makeRockTex();
+const arenaTex = makeRuneRingTex('arena');
+const magicTex = makeRuneRingTex('magic');
+const clockTex = makeClockTex();
+const stripTex = makeRuneStripTex();
+
+/* ══════════════════════════ VẬT LIỆU ══════════════════════════ */
+const rockMat   = new THREE.MeshStandardMaterial({ map:rockTex, roughness:.95, metalness:.02, envMapIntensity:.3 });
+const goldMat   = new THREE.MeshStandardMaterial({ color:0xd9a94f, metalness:.85, roughness:.35, envMapIntensity:1.1 });
+const goldGlow  = new THREE.MeshStandardMaterial({ color:0x6a4a18, metalness:.6, roughness:.4, emissive:0xffb454, emissiveIntensity:1.7 });
+const ivoryMat  = new THREE.MeshStandardMaterial({ color:0xbfa77e, roughness:.85, metalness:0, envMapIntensity:.35 });
+const handMat   = new THREE.MeshStandardMaterial({ color:0x33200e, metalness:.55, roughness:.4, envMapIntensity:.8 });
+const faceMat   = new THREE.MeshStandardMaterial({ map:clockTex, emissiveMap:clockTex, emissive:0xffffff, emissiveIntensity:.2, roughness:.85, metalness:0, envMapIntensity:.4 });
+const crystalMat= new THREE.MeshPhysicalMaterial({ color:0xcfe8ff, metalness:0, roughness:.14, transmission:.9, thickness:5, ior:1.45, envMapIntensity:1.2, transparent:true, fog:false });
+
+/* ══════════════════════════ ÁNH SÁNG ══════════════════════════ */
+scene.add(new THREE.HemisphereLight(0x55408f, 0x120a1e, .6));
+const dirL = new THREE.DirectionalLight(0x6a7bff, .65); dirL.position.set(60,90,-40); scene.add(dirL);
+const keyGold = new THREE.PointLight(0xffc46a, 1600, 0, 2); keyGold.position.set(0,30,0); scene.add(keyGold);
+const rimV = new THREE.PointLight(0x7a4fe0, 2600, 0, 2); rimV.position.set(-100,30,80); scene.add(rimV);
+const rimB = new THREE.PointLight(0x2a6fe0, 2400, 0, 2); rimB.position.set(110,-20,-90); scene.add(rimB);
+const underV = new THREE.PointLight(0x8a4fe0, 700, 0, 2); underV.position.set(0,-55,0); scene.add(underV);
+const flash = new THREE.PointLight(0xffd9a0, 0, 260, 2); flash.position.set(0,22,0); scene.add(flash);
+
+/* ══════════════════════════ SAO & TINH VÂN ══════════════════════════ */
+function makeStars(count,rMin,rMax,size,opacity){
+  const pos=new Float32Array(count*3), col=new Float32Array(count*3);
+  const palette=[new THREE.Color(0xbfd4ff), new THREE.Color(0xd8c8ff), new THREE.Color(0x9fb8ff), new THREE.Color(0xfff2d0)];
+  for(let i=0;i<count;i++){
+    const u=Math.random(), v=Math.random(), th=2*Math.PI*u, ph=Math.acos(2*v-1), r=R(rMin,rMax);
+    pos[i*3]=Math.sin(ph)*Math.cos(th)*r; pos[i*3+1]=Math.cos(ph)*r; pos[i*3+2]=Math.sin(ph)*Math.sin(th)*r;
+    const c=palette[Math.floor(R(palette.length))].clone().multiplyScalar(R(.5,1));
+    col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  g.setAttribute('color',new THREE.BufferAttribute(col,3));
+  return new THREE.Points(g,new THREE.PointsMaterial({ size, map:softTex, transparent:true, opacity, vertexColors:true, blending:THREE.AdditiveBlending, depthWrite:false, sizeAttenuation:true, fog:false }));
+}
+scene.add(makeStars(3200,750,1150,2.2,.9));
+scene.add(makeStars(900,420,700,3.4,.75));
+
+function makeNebulaTex(seed){
+  const [c,x]=makeCanvas(1024);
+  const rnd=lcg(seed);
+  const cols=['122,60,220','40,90,220','180,60,200','30,140,200'];
+  x.globalCompositeOperation='lighter';
+  for(let i=0;i<46;i++){
+    const px=512+(rnd()+rnd()-1)*380, py=512+(rnd()+rnd()-1)*380, rad=80+rnd()*280;
+    const g=x.createRadialGradient(px,py,0,px,py,rad);
+    g.addColorStop(0,`rgba(${cols[Math.floor(rnd()*4)]},${.04+rnd()*.07})`); g.addColorStop(1,'rgba(0,0,0,0)');
+    x.fillStyle=g; x.beginPath(); x.arc(px,py,rad,0,Math.PI*2); x.fill();
+  }
+  x.globalCompositeOperation='destination-in';
+  const m=x.createRadialGradient(512,512,0,512,512,512);
+  m.addColorStop(0,'rgba(255,255,255,1)'); m.addColorStop(.75,'rgba(255,255,255,.7)'); m.addColorStop(1,'rgba(255,255,255,0)');
+  x.fillStyle=m; x.fillRect(0,0,1024,1024);
+  return new THREE.CanvasTexture(c);
+}
+[makeNebulaTex(11), makeNebulaTex(37)].forEach((t,i)=>{
+  for(let k=0;k<3;k++){
+    const sp=new THREE.Sprite(new THREE.SpriteMaterial({ map:t, transparent:true, opacity:R(.35,.55), depthWrite:false, blending:THREE.AdditiveBlending, fog:false, rotation:R(Math.PI*2) }));
+    sp.position.set(R(-1,1)*520, R(-160,260), R(-900,-560));
+    const s=R(480,900); sp.scale.set(s,s*(R(.6,1)),1);
+    scene.add(sp);
+  }
+});
+// Sương tím nơi vực sâu
+for(let k=0;k<3;k++){
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({ map:softTex, color:0x2a1650, transparent:true, opacity:.32, depthWrite:false, blending:THREE.AdditiveBlending, fog:false }));
+  sp.position.set(R(-140,140), -95, R(-120,120));
+  sp.scale.set(R(380,520), R(150,220), 1);
+  scene.add(sp);
+}
+
+/* ══════════════════════════ DẢI THIÊN HÀ XOẮY ══════════════════════════ */
+const galaxyTilt = new THREE.Group();
+galaxyTilt.position.set(0,-140,-230);
+galaxyTilt.rotation.set(-0.45, 0, 0.1);
+scene.add(galaxyTilt);
+const galaxyDisc = new THREE.Group();
+galaxyTilt.add(galaxyDisc);
+{
+  const N=13000, RAD=420;
+  const pos=new Float32Array(N*3), col=new Float32Array(N*3);
+  const cIn=new THREE.Color(0xcbb3ff), cMid=new THREE.Color(0x7a5cff), cOut=new THREE.Color(0x2f66d8), cWarm=new THREE.Color(0xffd9a6);
+  const tmp=new THREE.Color();
+  for(let i=0;i<N;i++){
+    const t=Math.pow(Math.random(),1.6), r=t*RAD;
+    const spread=(1-t)*.55+.12;
+    const a=(i%2)*Math.PI + r*0.013 + (Math.random()+Math.random()-1)*spread;
+    const jr=(Math.random()+Math.random()-1)*22;
+    pos[i*3]=Math.cos(a)*r+jr;
+    pos[i*3+1]=(Math.random()+Math.random()+Math.random()-1.5)*18*(1-t*.8);
+    pos[i*3+2]=Math.sin(a)*r+jr;
+    if(Math.random()<.04) tmp.copy(cWarm);
+    else { tmp.copy(cIn).lerp(cMid, Math.min(t*2,1)); if(t>.5) tmp.lerp(cOut,(t-.5)*2); }
+    tmp.multiplyScalar(R(.45,1));
+    col[i*3]=tmp.r; col[i*3+1]=tmp.g; col[i*3+2]=tmp.b;
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  g.setAttribute('color',new THREE.BufferAttribute(col,3));
+  galaxyDisc.add(new THREE.Points(g,new THREE.PointsMaterial({ size:2, map:softTex, transparent:true, opacity:.9, vertexColors:true, blending:THREE.AdditiveBlending, depthWrite:false, sizeAttenuation:true, fog:false })));
+  const core1=new THREE.Sprite(new THREE.SpriteMaterial({ map:softTex, color:0x8a63e8, transparent:true, opacity:.55, depthWrite:false, blending:THREE.AdditiveBlending, fog:false }));
+  core1.scale.set(260,260,1); galaxyDisc.add(core1);
+  const core2=new THREE.Sprite(new THREE.SpriteMaterial({ map:softTex, color:0xd9c8ff, transparent:true, opacity:.8, depthWrite:false, blending:THREE.AdditiveBlending, fog:false }));
+  core2.scale.set(110,110,1); galaxyDisc.add(core2);
+}
+
+/* ══════════════════════════ DẢI NĂNG LƯỢNG XOẮY ══════════════════════════ */
+const ribbonVert=`varying vec2 vUv; varying float vDist;
+void main(){ vUv=uv; vec4 mv=modelViewMatrix*vec4(position,1.0); vDist=-mv.z; gl_Position=projectionMatrix*mv; }`;
+const ribbonFrag=`
+uniform float uTime; uniform float uDir; uniform float uSpeed; uniform vec3 uColA; uniform vec3 uColB;
+varying vec2 vUv; varying float vDist;
+void main(){
+  float pulse=pow(.5+.5*sin(vUv.x*46.0-uTime*uSpeed*uDir),3.0);
+  vec3 col=mix(uColA,uColB,.5+.5*sin(vUv.x*17.0-uTime*1.4*uDir));
+  float edge=sin(vUv.y*3.14159);
+  float fogF=exp(-pow(vDist*0.0042,2.0));
+  float a=(0.22+0.9*pulse)*edge*mix(0.25,1.0,fogF);
+  gl_FragColor=vec4(col*(0.55+1.5*pulse),a);
+}`;
+const ribbons=[];
+function makeRibbon(radius,y0,y1,turns,phase,radA,colA,colB,speed,dir){
+  const pts=[];
+  for(let i=0;i<=120;i++){
+    const t=i/120, a=phase+t*turns*Math.PI*2;
+    const rr=radius*(0.8+0.28*Math.sin(t*Math.PI*2.3+phase*2));
+    pts.push(new THREE.Vector3(Math.cos(a)*rr, y0+(y1-y0)*t+Math.sin(t*9+phase*3)*7, Math.sin(a)*rr));
+  }
+  const geo=new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),200,radA,8,false);
+  const mat=new THREE.ShaderMaterial({
+    uniforms:{ uTime:{value:0}, uDir:{value:dir}, uSpeed:{value:speed}, uColA:{value:new THREE.Color(colA)}, uColB:{value:new THREE.Color(colB)} },
+    vertexShader:ribbonVert, fragmentShader:ribbonFrag,
+    transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide
+  });
+  const m=new THREE.Mesh(geo,mat); scene.add(m); ribbons.push(mat);
+}
+makeRibbon(64,  66,-58, 2.2, 0.0, 1.4, 0xa15cff, 0x36d6ff, .9,  1);
+makeRibbon(98,  84,-70, 1.6, 2.1, 1.1, 0x3f7bff, 0x7fe8ff, .65,-1);
+makeRibbon(142,100,-85, 1.15,4.2, 0.9, 0xc25cff, 0x5c8bff, .5,  1);
+
+/* ══════════════════════════ BIẾN DẠNG ĐÁ & ĐỒNG HỒ TAN CHẢY ══════════════════════════ */
+function jitter(geo,amt,seed=1){
+  const p=geo.attributes.position, v=new THREE.Vector3();
+  for(let i=0;i<p.count;i++){
+    v.fromBufferAttribute(p,i);
+    const a=n3(v.x*1.2,v.y*1.2,v.z*1.2,seed)*amt;
+    const b=n3(v.y*2.1,v.z*2.1,v.x*2.1,seed+4)*amt*.6;
+    p.setXYZ(i,v.x+a,v.y+b,v.z+a*.8);
+  }
+  return geo;
+}
+function breakTop(geo,h,depth,seed){
+  const p=geo.attributes.position;
+  for(let i=0;i<p.count;i++){
+    const y=p.getY(i), top=h*.5-depth*1.2;
+    if(y>top){
+      const a=Math.atan2(p.getZ(i),p.getX(i));
+      const f=(0.35+0.65*Math.abs(Math.sin(a*3.3+seed)))*(0.55+0.45*Math.sin(a*7.7+seed*2.1));
+      const k=Math.min(1,(y-top)/depth);
+      p.setY(i,y-depth*f*k);
+    }
+  }
+  return geo;
+}
+function deformMelt(geo,r,meltA,seed){
+  const p=geo.attributes.position;
+  for(let i=0;i<p.count;i++){
+    let x=p.getX(i),y=p.getY(i),z=p.getZ(i);
+    const s=Math.max(0,-y/r);
+    if(s>0){
+      y*= (1+meltA*1.1*s*s);
+      y-= Math.sin(x/r*3.1+seed)*r*.10*meltA*s;
+      x+= Math.sin(y/r*2.3+seed*2)*r*.08*meltA*s;
+      z+= Math.sin(x/r*4.0+seed)*r*.06*meltA*s;
+    }
+    const s2=Math.max(0,y/r);
+    z+= Math.sin(x/r*2+seed)*r*.05*meltA*s2*s2;
+    p.setXYZ(i,x,y,z);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+// Đĩa nhiều vòng — để mặt đồng hồ biến dạng mượt khi tan chảy
+function makeDiscGeometry(r,rings=20,seg=96){
+  const pos=[0,0,0], uv=[.5,.5], idx=[];
+  for(let ri=1;ri<=rings;ri++){
+    const rr=r*ri/rings;
+    for(let si=0;si<seg;si++){
+      const a=si/seg*Math.PI*2, x=Math.cos(a)*rr, y=Math.sin(a)*rr;
+      pos.push(x,y,0); uv.push(x/r*.5+.5, y/r*.5+.5);
+    }
+  }
+  for(let si=0;si<seg;si++) idx.push(0, 1+si, 1+(si+1)%seg);
+  for(let ri=1;ri<rings;ri++){
+    for(let si=0;si<seg;si++){
+      const a0=1+(ri-1)*seg+si, b0=1+(ri-1)*seg+(si+1)%seg;
+      const a1=1+ri*seg+si,     b1=1+ri*seg+(si+1)%seg;
+      idx.push(a0,a1,b1, a0,b1,b0);
+    }
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+
+const clockRigs=[]; // { minute, hour, rate, dir }
+function makeHands(r,zOff){
+  const hg=new THREE.Group();
+  const minG=new THREE.BoxGeometry(r*.045,r*.72,r*.03); minG.translate(0,r*.31,zOff+r*.04);
+  const hrG =new THREE.BoxGeometry(r*.07, r*.5, r*.03); hrG.translate(0,r*.22,zOff);
+  hg.add(new THREE.Mesh(minG,handMat), new THREE.Mesh(hrG,handMat));
+  const hubG=new THREE.CylinderGeometry(r*.07,r*.07,r*.06,12); hubG.rotateX(Math.PI/2); hubG.translate(0,0,zOff+r*.02);
+  hg.add(new THREE.Mesh(hubG,goldMat));
+  return hg;
+}
+function makeFlatClock(r){
+  const g=new THREE.Group();
+  g.add(new THREE.Mesh(makeDiscGeometry(r),faceMat));
+  const back=new THREE.CylinderGeometry(r*.985,r*.985,r*.09,48,4); back.rotateX(Math.PI/2); back.translate(0,0,-r*.05);
+  g.add(new THREE.Mesh(back,ivoryMat));
+  g.add(new THREE.Mesh(new THREE.TorusGeometry(r,r*.06,10,96),goldMat));
+  const hands=makeHands(r,r*.12); g.add(hands);
+  return { group:g, hands };
+}
+function makeMeltClock(r,meltA,seed){
+  const g=new THREE.Group();
+  g.add(new THREE.Mesh(deformMelt(makeDiscGeometry(r),r,meltA,seed),faceMat));
+  const back=new THREE.CylinderGeometry(r*.985,r*.985,r*.09,48,6); back.rotateX(Math.PI/2);
+  g.add(new THREE.Mesh(deformMelt(back,r,meltA,seed),ivoryMat));
+  g.add(new THREE.Mesh(deformMelt(new THREE.TorusGeometry(r,r*.06,10,96),r,meltA,seed),goldMat));
+  const hands=makeHands(r,r*.15); g.add(hands);
+  const drops=[];
+  for(let i=0;i<2;i++){
+    const d=new THREE.Mesh(new THREE.SphereGeometry(r*.065,12,12), i?goldMat:ivoryMat);
+    d.scale.set(1,1.9,1);
+    d.position.set((i?1:-1)*r*.42, -r*(1+meltA*1.12), 0);
+    g.add(d); drops.push(d);
+  }
+  return { group:g, hands, drops, seed };
+}
+
+// Đồng hồ đơn thân — mặt trời thời gian phía sau đấu trường
+const monolith=makeFlatClock(26);
+monolith.group.position.set(0,42,-115);
+monolith.group.rotation.set(-0.1,0.15,0.04);
+scene.add(monolith.group);
+clockRigs.push({ hands:monolith.hands, rate:.5, dir:-1 });
+{ // Vòng rune quay quanh đồng hồ đơn thân
+  const ring=new THREE.Mesh(new THREE.PlaneGeometry(150,150),
+    new THREE.MeshBasicMaterial({ map:magicTex, transparent:true, opacity:.5, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide, fog:false }));
+  ring.position.z=-3; monolith.group.add(ring);
+  clockRigs.runeRing=ring;
+}
+
+// Đồng hồ tan chảy — vắt trên các tàn tích
+const meltDrops=[];
+function placeMelt(r,meltA,seed,pos,rot,colY){
+  const m=makeMeltClock(r,meltA,seed);
+  m.group.position.copy(pos); m.group.rotation.set(rot[0],rot[1],rot[2]);
+  scene.add(m.group);
+  clockRigs.push({ hands:m.hands, rate:.25, dir:-1 });
+  m.drops.forEach(d=> meltDrops.push({ mesh:d, base:d.scale.y, seed:m.seed }));
+  if(colY){ // cột đá nghiêng làm giá treo
+    const col=new THREE.Mesh(jitter(breakTop(new THREE.CylinderGeometry(1.6,2,colY,12,10),colY,colY*.24,seed),.35,seed),rockMat);
+    col.position.set(pos.x+R(-4,4),pos.y-colY*.42,pos.z+R(-4,4));
+    col.rotation.z=R(-.16,.16); scene.add(col);
+  }
+  return m;
+}
+placeMelt(8,  .8, 3,  new THREE.Vector3(-54,-24, 34), [ .1,  .9,  .28], 26);
+placeMelt(10, .65,8,  new THREE.Vector3( 60,-42,-26), [-.05, -.8, -.22], 30);
+placeMelt(5.5,.9, 15, new THREE.Vector3(-34, 16,-74), [ .1,  .35,  .5 ], 0);
+placeMelt(6.5,.75,21, new THREE.Vector3( 30,  2, 68), [-1.2,  .3,  .3 ], 0);
+
+// Đồng hồ đóng băng trong pha lê
+const crystals=[];
+function placeFrozen(r,pos,scl){
+  const wrap=new THREE.Group(); wrap.position.copy(pos);
+  const inner=makeFlatClock(r*.6); inner.group.position.y=-scl*.15; wrap.add(inner.group);
+  clockRigs.push({ hands:inner.hands, rate:.05, dir:1 });
+  const cry=new THREE.Mesh(new THREE.OctahedronGeometry(1,0),crystalMat);
+  cry.scale.set(scl,scl*1.35,scl); wrap.add(cry);
+  const glow=new THREE.Sprite(new THREE.SpriteMaterial({ map:softTex, color:0x7fd8ff, transparent:true, opacity:.28, depthWrite:false, blending:THREE.AdditiveBlending, fog:false }));
+  glow.scale.set(scl*2.2,scl*2.2,1); wrap.add(glow);
+  scene.add(wrap); crystals.push(cry);
+}
+placeFrozen(8, new THREE.Vector3(-46, 20, 44), 6);
+placeFrozen(8, new THREE.Vector3( 48,-14,-58), 7.5);
+
+/* ══════════════════════════ BỆ ĐẤU TRƯỜNG & VÙNG BOSS ══════════════════════════ */
+const arena=new THREE.Group(); scene.add(arena);
+{
+  const t1=new THREE.Mesh(jitter(new THREE.CylinderGeometry(36,40,4,48,2),.3,1),rockMat); t1.position.y=-2;   arena.add(t1);
+  const t2=new THREE.Mesh(jitter(new THREE.CylinderGeometry(30,33,5,48,2),.28,2),rockMat); t2.position.y=2.5; arena.add(t2);
+  const t3=new THREE.Mesh(jitter(new THREE.CylinderGeometry(27,29,2.5,48,1),.2,3),rockMat); t3.position.y=6;  arena.add(t3);
+  const base=new THREE.Mesh(jitter(new THREE.CylinderGeometry(38,7,30,14,6),.9,4),rockMat); base.position.y=-19; arena.add(base);
+  for(let i=0;i<6;i++){ // đá vụn bám đáy
+    const b=new THREE.Mesh(jitter(new THREE.BoxGeometry(R(3,6),R(2,5),R(3,6),2,2,2),.7,i+9),rockMat);
+    const a=R(Math.PI*2); b.position.set(Math.cos(a)*R(8,26),R(-32,-22),Math.sin(a)*R(8,26));
+    b.rotation.set(R(Math.PI),R(Math.PI),R(Math.PI)); arena.add(b);
+  }
+  // Viền vàng kim
+  const rim1=new THREE.Mesh(new THREE.TorusGeometry(28.6,.5,8,72),goldMat); rim1.rotation.x=Math.PI/2; rim1.position.y=7.3; arena.add(rim1);
+  const rim2=new THREE.Mesh(new THREE.TorusGeometry(37.8,.35,8,72),goldMat); rim2.rotation.x=Math.PI/2; rim2.position.y=.2; arena.add(rim2);
+  // Bát úp rune trên mặt bệ
+  const runeHolder=new THREE.Group(); arena.add(runeHolder);
+  const rune=new THREE.Mesh(new THREE.CircleGeometry(26,64),
+    new THREE.MeshBasicMaterial({ map:arenaTex, transparent:true, opacity:.95, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide, fog:false }));
+  rune.rotation.x=-Math.PI/2; rune.position.y=7.32; runeHolder.add(rune);
+  arena.userData.runeHolder=runeHolder;
+  // 8 trụ đèn vàng quanh viền
+  for(let i=0;i<8;i++){
+    const a=i/8*Math.PI*2+.2, hp=i%2?7:5;
+    const p=new THREE.Mesh(jitter(new THREE.CylinderGeometry(.5,.7,hp,8,3),.08,i+30),rockMat);
+    p.position.set(Math.cos(a)*33,4.5+hp/2,Math.sin(a)*33); arena.add(p);
+    const orb=new THREE.Mesh(new THREE.SphereGeometry(.55,12,12),goldGlow);
+    orb.position.set(Math.cos(a)*33,4.5+hp+.45,Math.sin(a)*33); arena.add(orb);
+  }
+  // Hai vòng ma thuật nổi
+  const mh1=new THREE.Group(), mh2=new THREE.Group();
+  const mc1=new THREE.Mesh(new THREE.PlaneGeometry(44,44),
+    new THREE.MeshBasicMaterial({ map:magicTex, transparent:true, opacity:.8, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide, fog:false }));
+  mc1.rotation.x=-Math.PI/2; mc1.rotation.z=.08; mh1.add(mc1); mh1.position.y=13; arena.add(mh1);
+  const mc2=new THREE.Mesh(new THREE.PlaneGeometry(30,30),
+    new THREE.MeshBasicMaterial({ map:arenaTex, transparent:true, opacity:.5, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide, fog:false }));
+  mc2.rotation.x=-Math.PI/2; mc2.rotation.z=-.12; mh2.add(mc2); mh2.position.y=17.5; arena.add(mh2);
+  arena.userData.mh1=mh1; arena.userData.mh2=mh2;
+  // Cột sáng vàng mảnh — ngọn nến thời gian đánh dấu vị trí trống
+  const shaftMat=new THREE.ShaderMaterial({
+    uniforms:{ uTime:{value:0} },
+    vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader:`uniform float uTime; varying vec2 vUv;
+      void main(){
+        float a=smoothstep(0.0,0.3,vUv.y)*smoothstep(1.0,0.55,vUv.y);
+        a*=0.14*(0.85+0.15*sin(vUv.y*36.0-uTime*2.2));
+        gl_FragColor=vec4(vec3(1.0,0.82,0.5),a);
+      }`,
+    transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide
+  });
+  const shaft=new THREE.Mesh(new THREE.CylinderGeometry(2.2,3.2,30,24,1,true),shaftMat);
+  shaft.position.y=20; arena.add(shaft);
+  ribbons.push(shaftMat); // cho chung nhịp uTime
+
+  // Bụi vàng trôi lên quanh bệ
+  const dn=130, dp=new Float32Array(dn*3), dSpeed=[];
+  for(let i=0;i<dn;i++){
+    const a=R(Math.PI*2), rr=R(6,30);
+    dp[i*3]=Math.cos(a)*rr; dp[i*3+1]=R(4,30); dp[i*3+2]=Math.sin(a)*rr;
+    dSpeed.push(R(.35,1.1));
+  }
+  const dg=new THREE.BufferGeometry(); dg.setAttribute('position',new THREE.BufferAttribute(dp,3));
+  const dust=new THREE.Points(dg,new THREE.PointsMaterial({ size:.9, map:softTex, color:0xffd27a, transparent:true, opacity:.75, blending:THREE.AdditiveBlending, depthWrite:false, fog:false }));
+  const dustHolder=new THREE.Group(); dustHolder.add(dust); arena.add(dustHolder);
+  arena.userData.dust={ dust, dSpeed, holder:dustHolder };
+}
+// ═══ ANCHOR CHO BOSS — gắn model boss của bạn vào group này ═══
+const bossAnchor=new THREE.Group();
+bossAnchor.position.set(0, 8.5, 0);
+scene.add(bossAnchor);
+
+/* ══════════════════════════ TÀN TÍCH CỔ ĐẠI ══════════════════════════ */
+const ruins=[]; // { obj, baseY, phase, amp, spin, baseRot }
+function registerRuin(obj,amp=1.6,spin=R(.02,.08)){
+  obj.userData._r={ baseY:obj.position.y, phase:R(Math.PI*2), amp, spin, baseRot:obj.rotation.y };
+  ruins.push(obj);
+}
+function brokenColumn(r,h,seed,tilt=0){
+  const g=new THREE.Group();
+  const body=new THREE.Mesh(jitter(breakTop(new THREE.CylinderGeometry(r*.82,r,h,12,10),h,h*.22,seed),r*.12,seed),rockMat);
+  g.add(body);
+  const base=new THREE.Mesh(jitter(new THREE.BoxGeometry(r*2.8,r*.7,r*2.8,2,2,2),.12,seed+1),rockMat);
+  base.position.y=-h*.5-r*.3; g.add(base);
+  const band=new THREE.Mesh(new THREE.TorusGeometry(r*1.05,.09,6,24),goldMat);
+  band.rotation.x=Math.PI/2; band.position.y=h*.18; g.add(band);
+  g.rotation.z=tilt;
+  return g;
+}
+const rubbleGeos=[], columnFrags=[];
+for(let i=0;i<7;i++){ const g=new THREE.BoxGeometry(R(1.5,4),R(1,3),R(1.5,4),2,2,2); jitter(g,.3,i*3.7); rubbleGeos.push(g); }
+for(let i=0;i<5;i++){ const h=R(3,7); const g=jitter(breakTop(new THREE.CylinderGeometry(R(.7,1.4),R(.9,1.7),h,10,6),h,h*.3,i+50),.14,i+60); columnFrags.push(g); }
+
+function scatter(count,rMin,rMax,yMin,yMax,sMin,sMax,geoSet){
+  for(let i=0;i<count;i++){
+    const a=R(Math.PI*2), rr=R(rMin,rMax);
+    const m=new THREE.Mesh(geoSet[Math.floor(R(geoSet.length))],rockMat);
+    m.position.set(Math.cos(a)*rr,R(yMin,yMax),Math.sin(a)*rr);
+    m.scale.setScalar(R(sMin,sMax));
+    m.rotation.set(R(Math.PI),R(Math.PI),R(Math.PI));
+    scene.add(m); registerRuin(m,R(1,2.6));
+  }
+}
+scatter(18, 55,135,  -8, 48, .8, 2.6, rubbleGeos);
+scatter(14, 40,130, -62,-18, .9, 2.8, rubbleGeos);
+scatter(10,150,260, -40, 70, 2,  4.2, rubbleGeos);
+scatter(10, 60,140, -30, 40, .7, 1.8, columnFrags);
+
+// Vòng đền cổ chìm phía dưới
+for(let i=0;i<8;i++){
+  const a=i/8*Math.PI*2, rr=R(75,95);
+  const col=brokenColumn(R(2.2,3.2),R(24,38),i+70,i%3===0?R(-.2,.2):0);
+  col.position.set(Math.cos(a)*rr,-78,Math.sin(a)*rr);
+  col.rotation.y=R(Math.PI*2);
+  scene.add(col); registerRuin(col,1,0);
+}
+{ const floor=new THREE.Mesh(jitter(new THREE.CylinderGeometry(95,108,3,48,2),.7,88),rockMat);
+  floor.position.y=-95; scene.add(floor); registerRuin(floor,.4,0); }
+
+// Mảnh vòm cổng + bia đá khắc rune
+for(let i=0;i<4;i++){
+  const a=i/4*Math.PI*2+.6, rr=R(65,110);
+  const arch=new THREE.Group();
+  const arc=new THREE.Mesh(jitter(new THREE.TorusGeometry(R(4,6),.9,8,24,Math.PI*.9),.25,i+120),rockMat);
+  arch.add(arc);
+  arch.position.set(Math.cos(a)*rr,R(-45,20),Math.sin(a)*rr);
+  arch.rotation.set(R(.6),R(Math.PI*2),R(.6));
+  scene.add(arch); registerRuin(arch,R(1,2),R(.02,.05));
+}
+for(let i=0;i<4;i++){
+  const a=i/4*Math.PI*2+1.1, rr=R(50,100);
+  const stele=new THREE.Group();
+  const slab=new THREE.Mesh(jitter(new THREE.BoxGeometry(3,R(7,9),.9,3,4,1),.22,i+140),rockMat);
+  stele.add(slab);
+  const strip=new THREE.Mesh(new THREE.PlaneGeometry(2.4,6),
+    new THREE.MeshBasicMaterial({ map:stripTex, transparent:true, opacity:.85, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide, fog:false }));
+  strip.position.z=.62; stele.add(strip);
+  stele.position.set(Math.cos(a)*rr,R(-40,25),Math.sin(a)*rr);
+  stele.rotation.set(R(.3),R(Math.PI*2),R(.25));
+  scene.add(stele); registerRuin(stele,R(1,2),R(.02,.06));
+}
+
+/* ══════════════════════════ MẢNH VỠ RỚI → TUA NGƯỢC (điểm nhấn) ══════════════════════════ */
+const TRAIL_N=64;
+const shards=[];
+class ChronoShard{
+  constructor(){
+    const a=R(Math.PI*2), rr=R(45,120);
+    this.start=new THREE.Vector3(Math.cos(a)*rr, R(10,45), Math.sin(a)*rr);
+    this.drop=R(45,80);
+    this.sway=R(4,10);
+    this.dur=R(7,11);
+    this.p=R(1); // pha chu kỳ 0..1
+    this.spinX=R(.5,1.6); this.spinY=R(.5,1.6);
+    this.mesh=new THREE.Mesh(rubbleGeos[Math.floor(R(rubbleGeos.length))],rockMat.clone());
+    this.mesh.material.emissive=new THREE.Color(0x8a5cff);
+    this.mesh.material.emissiveIntensity=0;
+    this.mesh.scale.setScalar(R(.9,1.8));
+    this.mesh.position.copy(this.start);
+    scene.add(this.mesh);
+    // Vệt thời gian
+    this.hist=new Float32Array(TRAIL_N*3);
+    for(let i=0;i<TRAIL_N;i++) this.hist.set([this.start.x,this.start.y,this.start.z],i*3);
+    const tg=new THREE.BufferGeometry();
+    tg.setAttribute('position',new THREE.BufferAttribute(this.hist.slice(),3));
+    this.colAttr=new THREE.BufferAttribute(new Float32Array(TRAIL_N*3),3);
+    tg.setAttribute('color',this.colAttr);
+    this.line=new THREE.Line(tg,new THREE.LineBasicMaterial({ vertexColors:true, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, fog:false }));
+    this.line.frustumCulled=false;
+    scene.add(this.line);
+    this._v=new THREE.Vector3();
+  }
+  posAt(p,out){
+    if(p<.5){ const q=p/.5; out.set(this.start.x, this.start.y-this.drop*q*q, this.start.z); }
+    else{ const q=(p-.5)/.5, e=1-Math.pow(1-q,3);
+      out.set(this.start.x+Math.sin(q*Math.PI)*this.sway, this.start.y-this.drop+this.drop*e, this.start.z+Math.sin(q*Math.PI)*this.sway*.5); }
+    return out;
+  }
+  update(dts){
+    this.p=(this.p+dts/this.dur)%1; if(this.p<0)this.p+=1;
+    const glow=this.p>.5? Math.sin((this.p-.5)/.5*Math.PI):0;
+    this.posAt(this.p,this._v);
+    this.mesh.position.copy(this._v);
+    this.mesh.rotation.set(this.p*Math.PI*4*this.spinX, this.p*Math.PI*4*this.spinY, this.p*Math.PI*2);
+    this.mesh.material.emissiveIntensity=glow*2.4;
+    // Ghi vệt & tô màu
+    if(dts!==0){
+      this.hist.copyWithin(3,0,(TRAIL_N-1)*3);
+      this.hist[0]=this._v.x; this.hist[1]=this._v.y; this.hist[2]=this._v.z;
+    }
+    const pa=this.line.geometry.attributes.position;
+    pa.array.set(this.hist); pa.needsUpdate=true;
+    const ca=this.colAttr.array, base=.16+glow*1.5;
+    for(let i=0;i<TRAIL_N;i++){
+      const f=Math.pow(1-i/TRAIL_N,2)*base;
+      ca[i*3]=.61*f; ca[i*3+1]=.36*f; ca[i*3+2]=1*f;
+    }
+    this.colAttr.needsUpdate=true;
+  }
+}
+for(let i=0;i<14;i++) shards.push(new ChronoShard());
+
+/* ══════════════════════════ XUNG THỜI GIAN ══════════════════════════ */
+const pulseGeo=new THREE.RingGeometry(.96,1,128);
+const pulses=[];
+function firePulse(){
+  [[0xffd27a,0],[0x9b5cff,.14]].forEach(([col,delay])=>{
+    const m=new THREE.Mesh(pulseGeo,new THREE.MeshBasicMaterial({ color:col, transparent:true, opacity:.85, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, depthWrite:false, fog:false }));
+    m.rotation.x=-Math.PI/2; m.position.y=6; m.scale.set(.001,.001,1);
+    m.userData={t:-delay};
+    scene.add(m); pulses.push(m);
+  });
+  flash.intensity=2600;
+}
+
+/* ══════════════════════════ UI & DÒNG THỜI GIAN ══════════════════════════ */
+let timeScale=1, simTime=0, virtualSeconds=R(3600*3,3600*8);
+const slider=document.getElementById('timeSlider');
+const timeValue=document.getElementById('timeValue');
+const flowState=document.getElementById('flowState');
+const tint=document.getElementById('tint');
+const vTimeEl=document.getElementById('virtualTime');
+const presets=[...document.querySelectorAll('.preset')];
+
+function updateFlowUI(){
+  const v=timeScale;
+  timeValue.textContent='×'+(v<0?'−':'')+Math.abs(v).toFixed(1);
+  presets.forEach(b=> b.classList.toggle('active', Math.abs(parseFloat(b.dataset.scale)-v)<.001));
+  flowState.classList.remove('stop','rev'); tint.className='';
+  if(v===0){ flowState.textContent='THỜI GIAN BỊ ĐÓNG BĂNG'; flowState.classList.add('stop'); tint.classList.add('frozen'); }
+  else if(v<0){ flowState.textContent='DÒNG THỜI GIAN ĐANG QUAY NGƯỢC'; flowState.classList.add('rev'); tint.classList.add('reverse'); }
+  else flowState.textContent='DÒNG THỜI GIAN TUÂN CHUỘNG';
+}
+slider.addEventListener('input',()=>{ timeScale=slider.value/100; updateFlowUI(); });
+presets.forEach(b=> b.addEventListener('click',()=>{ timeScale=parseFloat(b.dataset.scale); slider.value=timeScale*100; updateFlowUI(); }));
+document.getElementById('pulseBtn').addEventListener('click',firePulse);
+addEventListener('keydown',e=>{ if(e.code==='Space'){ e.preventDefault(); firePulse(); } });
+
+const pad=n=>String(n).padStart(2,'0');
+function fmtTime(t){
+  const sg=t<0?'-':'+', a=Math.abs(t);
+  return `T${sg}${pad(Math.floor(a/3600)%100)}:${pad(Math.floor(a/60)%60)}:${pad(Math.floor(a%60))}.${Math.floor(a%1*10)}`;
+}
+let glitchLeft=0, glitchTimer=0;
+const GLYPHS='0123456789ABCDEF#?:';
+function updateVirtualHUD(dt){
+  glitchTimer-=dt;
+  if(glitchTimer<=0){
+    glitchTimer=R(2.5,5);
+    if(Math.random() < (timeScale<0? .5 : .2)) glitchLeft=.13;
+  }
+  if(glitchLeft>0){
+    glitchLeft-=dt;
+    let s='T';
+    for(let i=0;i<9;i++) s+= Math.random()<.35? GLYPHS[Math.floor(R(GLYPHS.length))] : '·'[0]&&GLYPHS[0];
+    vTimeEl.textContent=s.split('').map(c=> Math.random()<.3?GLYPHS[Math.floor(R(GLYPHS.length))]:c).join('');
+    vTimeEl.classList.add('glitch');
+  }else{
+    vTimeEl.textContent=fmtTime(virtualSeconds);
+    vTimeEl.classList.remove('glitch');
+  }
+}
+
+/* ══════════════════════════ VÒNG LẶP CHÍNH ══════════════════════════ */
+const frameClock=new THREE.Clock();
+let introT=0; const INTRO=3.4;
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=Math.min(frameClock.getDelta(),.05);
+  const dts=dt*timeScale;
+  simTime+=dts; virtualSeconds+=dts;
+
+  // Camera lướt vào, rồi trao quyền cho người xem (camera đứng NGOÀI dòng thời gian)
+  if(introT<INTRO){
+    introT+=dt;
+    camera.position.lerpVectors(camStart,camEnd,easeOutCubic(Math.min(introT/INTRO,1)));
+    camera.lookAt(0,6,0);
+    if(introT>=INTRO){ controls.enabled=true; controls.autoRotate=true; controls.update(); }
+  }else controls.update();
+
+  // Thiên hà & dải năng lượng
+  galaxyDisc.rotation.y=simTime*.02;
+  ribbons.forEach(m=>{ if(m.uniforms&&m.uniforms.uTime) m.uniforms.uTime.value=simTime; });
+
+  // Bệ: rune, vòng ma thuật, bụi vàng
+  arena.userData.runeHolder.rotation.y=simTime*.06;
+  arena.userData.mh1.rotation.y=simTime*.18;
+  arena.userData.mh2.rotation.y=-simTime*.13;
+  if(clockRigs.runeRing) clockRigs.runeRing.rotation.z=-simTime*.1;
+  const D=arena.userData.dust;
+  D.holder.rotation.y=simTime*.05;
+  const dpos=D.dust.geometry.attributes.position;
+  for(let i=0;i<D.dSpeed.length;i++){
+    let y=dpos.getY(i)+dts*D.dSpeed[i]*3;
+    if(y>30)y=4; dpos.setY(i,y);
+  }
+  dpos.needsUpdate=true;
+
+  // Kim đồng hồ — mọi chiếc tuân theo dòng thời gian
+  clockRigs.forEach(r=>{ if(r && r.hands) r.hands.rotation.z=-simTime*r.rate*r.dir; });
+  meltDrops.forEach(d=>{ d.mesh.scale.y=d.base+Math.sin(simTime*2+d.seed)*.28; });
+  crystals.forEach((c,i)=>{ c.rotation.y=simTime*.12+i; c.rotation.x=simTime*.07; });
+
+  // Tàn tích trôi lơ lửng
+  for(const o of ruins){
+    const u=o.userData._r;
+    o.position.y=u.baseY+Math.sin(simTime*.25+u.phase)*u.amp;
+    o.rotation.y=u.baseRot+simTime*u.spin;
+  }
+
+  // Mảnh vỡ rơi → tua ngược
+  for(const s of shards) s.update(dts);
+
+  // Xung thời gian (chạy theo thời gian thực — can thiệp từ người quan sát)
+  for(let i=pulses.length-1;i>=0;i--){
+    const m=pulses[i]; m.userData.t+=dt;
+    const t=m.userData.t;
+    if(t<0){ m.visible=false; continue; }
+    m.visible=true;
+    const k=Math.min(t/1.5,1), s=8+easeOutCubic(k)*250;
+    m.scale.set(s,s,1);
+    m.material.opacity=(1-k)*.8;
+    if(k>=1){ scene.remove(m); m.material.dispose(); pulses.splice(i,1); }
+  }
+  flash.intensity*=Math.exp(-6*dt);
+
+  updateVirtualHUD(dt);
+  composer.render();
+}
+animate();
+
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+  composer.setSize(innerWidth,innerHeight);
+});
+
+/* Loader đã chuyển ra script bên ngoài module */
+try {
+  if (!renderer.getContext()) throw new Error('WebGL context null');
+} catch (e) {
+  if (window.__showError) {
+    window.__showError(
+      'WebGL không khả dụng',
+      'Card đồ họa / trình duyệt không tạo được ngữ cảnh WebGL.',
+      String(e && e.message || e),
+      '• Bật <b>Hardware Acceleration</b> trong Chrome/Edge<br>• Cập nhật driver GPU<br>• Thử trình duyệt khác'
+    );
+  }
+}
+</script>
+</body>
+</html>
